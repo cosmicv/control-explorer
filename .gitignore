@@ -1,0 +1,12 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Exported files (don't commit generated exports)
+control_explorer_*.xlsx
+
+# Editor
+.vscode/
+.idea/
+*.swp

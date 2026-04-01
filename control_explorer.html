@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Control Explorer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #22263a;
+    --border: #2e3250;
+    --accent: #c0392b;
+    --accent2: #e74c3c;
+    --text: #e8eaf0;
+    --text-muted: #8890b0;
+    --tag-bg: #2e3250;
+    --green: #27ae60;
+    --font: 'Segoe UI', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--font); background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  /* ── Header ── */
+  header {
+    background: var(--surface); border-bottom: 2px solid var(--accent);
+    padding: 0 24px; height: 56px; display: flex; align-items: center;
+    justify-content: space-between; position: sticky; top: 0; z-index: 200;
+  }
+  .logo { display: flex; align-items: center; gap: 12px; }
+  .logo-icon { width: 32px; height: 32px; background: var(--accent); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 16px; }
+  .logo h1 { font-size: 17px; font-weight: 600; letter-spacing: 0.3px; }
+  .logo span { color: var(--accent2); }
+  .header-right { display: flex; align-items: center; gap: 12px; }
+  #row-count { font-size: 13px; color: var(--text-muted); }
+  #load-btn { background: var(--accent); color: #fff; border: none; padding: 7px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; transition: background .15s; }
+  #load-btn:hover { background: var(--accent2); }
+  #export-btn { background: #1a4a2e; color: #27ae60; border: 1px solid #27ae60; padding: 5px 13px; border-radius: 5px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all .15s; white-space: nowrap; }
+  #export-btn:hover { background: #27ae60; color: #fff; }
+
+  /* ── Drop Zone ── */
+  #drop-zone { display: flex; flex-direction: column; align-items: center; justify-content: center; height: calc(100vh - 56px); gap: 16px; border: 2px dashed var(--border); margin: 32px; border-radius: 12px; transition: border-color .2s; }
+  #drop-zone.drag-over { border-color: var(--accent); background: rgba(192,57,43,.05); }
+  #drop-zone .icon { font-size: 48px; }
+  #drop-zone h2 { font-size: 22px; font-weight: 600; }
+  #drop-zone p { color: var(--text-muted); font-size: 14px; }
+  #drop-zone label { background: var(--accent); color: #fff; padding: 10px 24px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 500; }
+  #drop-zone label:hover { background: var(--accent2); }
+
+  /* ── Layout ── */
+  #app { display: none; height: calc(100vh - 56px); overflow: hidden; }
+  #main { display: flex; height: 100%; }
+  #sidebar { width: 240px; min-width: 240px; background: var(--surface); border-right: 1px solid var(--border); overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 18px; }
+  #content { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+
+  /* ── Sidebar ── */
+  .sidebar-section h3 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .8px; color: var(--text-muted); margin-bottom: 8px; }
+  #search { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 7px 11px; color: var(--text); font-size: 13px; outline: none; }
+  #search:focus { border-color: var(--accent); }
+  #search::placeholder { color: var(--text-muted); }
+  .filter-select { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; color: var(--text); font-size: 12px; outline: none; cursor: pointer; margin-bottom: 6px; }
+  .filter-select:focus { border-color: var(--accent); }
+  .weight-row { display: flex; align-items: center; gap: 8px; }
+  #weight-min { width: 100%; accent-color: var(--accent); }
+  #weight-val { font-size: 11px; color: var(--text-muted); min-width: 32px; }
+
+  /* Toggle list (shared by columns + frameworks) */
+  .toggle-list { display: flex; flex-direction: column; gap: 5px; max-height: 220px; overflow-y: auto; }
+  .toggle-item { display: flex; align-items: center; gap: 7px; cursor: pointer; padding: 4px 7px; border-radius: 4px; font-size: 12px; user-select: none; }
+  .toggle-item:hover { background: var(--surface2); }
+  .toggle-item input[type=checkbox] { accent-color: var(--accent); width: 13px; height: 13px; cursor: pointer; flex-shrink: 0; }
+  .toggle-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .toggle-actions { display: flex; gap: 5px; margin-bottom: 7px; }
+  .toggle-actions button { flex: 1; background: var(--surface2); border: 1px solid var(--border); color: var(--text-muted); padding: 4px 0; border-radius: 4px; font-size: 11px; cursor: pointer; }
+  .toggle-actions button:hover { border-color: var(--accent); color: var(--text); }
+
+  #clear-filters { width: 100%; background: transparent; border: 1px solid var(--border); color: var(--text-muted); padding: 6px; border-radius: 6px; font-size: 12px; cursor: pointer; margin-top: auto; }
+  #clear-filters:hover { border-color: var(--accent); color: var(--text); }
+
+  /* ── Toolbar ── */
+  #toolbar { padding: 8px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; background: var(--surface); flex-shrink: 0; min-height: 42px; }
+  .active-filters { display: flex; gap: 5px; flex-wrap: wrap; flex: 1; }
+  .filter-chip { background: rgba(192,57,43,.15); border: 1px solid rgba(192,57,43,.4); color: var(--accent2); font-size: 11px; padding: 2px 9px; border-radius: 20px; display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+  .filter-chip button { background: none; border: none; color: inherit; cursor: pointer; font-size: 12px; line-height: 1; padding: 0 1px; }
+  #visible-label { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+
+  /* ── Table ── */
+  #table-wrap { flex: 1; overflow: auto; position: relative; }
+  table { border-collapse: collapse; font-size: 12px; }
+  /* Make table full width only when few columns; scroll when wide */
+  #data-table { min-width: 100%; }
+  thead { position: sticky; top: 0; z-index: 10; }
+
+  th {
+    background: var(--surface2); border: 1px solid var(--border);
+    padding: 0; text-align: left; white-space: nowrap; color: var(--text-muted);
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px;
+    position: relative; min-width: 60px;
+  }
+  .th-inner { display: flex; align-items: center; gap: 0; height: 36px; }
+  .th-label { flex: 1; padding: 0 8px; cursor: pointer; height: 100%; display: flex; align-items: center; gap: 4px; user-select: none; white-space: nowrap; overflow: hidden; }
+  .th-label:hover { color: var(--text); background: rgba(255,255,255,.04); }
+  .sort-icon { font-size: 10px; opacity: .5; }
+  .sorted-asc .sort-icon, .sorted-desc .sort-icon { opacity: 1; color: var(--accent2); }
+  .th-filter-btn { width: 24px; height: 100%; display: flex; align-items: center; justify-content: center; cursor: pointer; border-left: 1px solid var(--border); font-size: 10px; color: var(--text-muted); flex-shrink: 0; }
+  .th-filter-btn:hover { background: rgba(255,255,255,.06); color: var(--text); }
+  .th-filter-btn.active { color: var(--accent2); background: rgba(192,57,43,.12); }
+
+  td { border: 1px solid var(--border); padding: 7px 10px; vertical-align: top; color: var(--text); }
+  tr:hover td { background: rgba(255,255,255,.025); }
+  tr:nth-child(even) td { background: rgba(255,255,255,.012); }
+  tr:nth-child(even):hover td { background: rgba(255,255,255,.03); }
+  tr.clickable { cursor: pointer; }
+
+  /* Column widths */
+  .col-domain   { width: 140px; max-width: 160px; }
+  .col-control  { width: 170px; max-width: 200px; }
+  .col-scf      { width: 72px;  max-width: 80px; }
+  .col-desc     { width: 260px; max-width: 300px; }
+  .col-cadence  { width: 75px;  max-width: 85px;  text-align: center; }
+  .col-erl      { width: 110px; max-width: 130px; }
+  .col-question { width: 260px; max-width: 300px; }
+  .col-weight   { width: 58px;  max-width: 65px;  text-align: center; }
+  .col-nist     { width: 78px;  max-width: 90px; }
+  .col-fw       { width: 90px;  max-width: 120px; text-align: center; font-size: 11px; }
+  .truncate { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+  /* Badges */
+  .weight-badge { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; font-size: 11px; font-weight: 700; }
+  .w-high { background: rgba(192,57,43,.25); color: #e74c3c; border: 1px solid rgba(192,57,43,.4); }
+  .w-med  { background: rgba(243,156,18,.2);  color: #f39c12; border: 1px solid rgba(243,156,18,.4); }
+  .w-low  { background: rgba(39,174,96,.15);  color: #27ae60; border: 1px solid rgba(39,174,96,.3); }
+  .nist-badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 600; }
+  .nist-govern   { background: #2d1b69; color: #9b59b6; border: 1px solid #6c3483; }
+  .nist-identify { background: #1a3a5c; color: #3498db; border: 1px solid #2980b9; }
+  .nist-protect  { background: #1a4a2e; color: #27ae60; border: 1px solid #1e8449; }
+  .nist-detect   { background: #4a3000; color: #f39c12; border: 1px solid #d68910; }
+  .nist-respond  { background: #4a1500; color: #e67e22; border: 1px solid #ca6f1e; }
+  .nist-recover  { background: #2c2c2c; color: #95a5a6; border: 1px solid #707b7c; }
+  .domain-tag { font-size: 10px; color: var(--text-muted); background: var(--tag-bg); padding: 2px 5px; border-radius: 3px; display: inline-block; }
+  .fw-empty { color: var(--text-muted); }
+
+  /* ── Column Filter Popover ── */
+  #col-filter-popover {
+    display: none; position: fixed; z-index: 500;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; box-shadow: 0 8px 32px rgba(0,0,0,.6);
+    width: 240px; padding: 12px;
+    flex-direction: column; gap: 8px;
+  }
+  #col-filter-popover.open { display: flex; }
+  .popover-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; color: var(--text-muted); }
+  #popover-search { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 5px; padding: 6px 9px; color: var(--text); font-size: 12px; outline: none; }
+  #popover-search:focus { border-color: var(--accent); }
+  #popover-search::placeholder { color: var(--text-muted); }
+  .popover-actions { display: flex; gap: 5px; }
+  .popover-actions button { flex: 1; background: var(--surface2); border: 1px solid var(--border); color: var(--text-muted); padding: 4px 0; border-radius: 4px; font-size: 11px; cursor: pointer; }
+  .popover-actions button:hover { border-color: var(--accent); color: var(--text); }
+  #popover-list { max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
+  .popover-item { display: flex; align-items: center; gap: 7px; padding: 4px 6px; border-radius: 4px; font-size: 12px; cursor: pointer; user-select: none; }
+  .popover-item:hover { background: var(--surface2); }
+  .popover-item input { accent-color: var(--accent); width: 13px; height: 13px; cursor: pointer; flex-shrink: 0; }
+  .popover-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .popover-footer { display: flex; gap: 6px; padding-top: 4px; border-top: 1px solid var(--border); }
+  .popover-footer button { flex: 1; padding: 6px; border-radius: 5px; font-size: 12px; cursor: pointer; border: 1px solid var(--border); }
+  #popover-apply { background: var(--accent); color: #fff; border-color: var(--accent); }
+  #popover-apply:hover { background: var(--accent2); }
+  #popover-clear { background: transparent; color: var(--text-muted); }
+  #popover-clear:hover { border-color: var(--accent); color: var(--text); }
+
+  /* ── Detail Panel ── */
+  #detail-panel { display: none; position: fixed; right: 0; top: 56px; bottom: 0; width: 400px; background: var(--surface); border-left: 1px solid var(--border); z-index: 50; overflow-y: auto; padding: 20px; flex-direction: column; gap: 14px; }
+  #detail-panel.open { display: flex; }
+  #detail-close { position: absolute; top: 10px; right: 10px; background: var(--surface2); border: 1px solid var(--border); color: var(--text-muted); width: 26px; height: 26px; border-radius: 4px; cursor: pointer; font-size: 15px; display: flex; align-items: center; justify-content: center; }
+  #detail-close:hover { border-color: var(--accent); color: var(--text); }
+  .detail-label { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: var(--text-muted); margin-bottom: 3px; }
+  .detail-value { font-size: 13px; line-height: 1.5; }
+  .detail-divider { border: none; border-top: 1px solid var(--border); }
+  .detail-fw-grid { display: flex; flex-wrap: wrap; gap: 5px; }
+  .detail-fw-chip { background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 2px 7px; font-size: 11px; color: var(--text-muted); }
+  .detail-fw-chip.mapped { border-color: var(--green); color: var(--green); background: rgba(39,174,96,.08); }
+
+  /* ── Misc ── */
+  #loading { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 999; align-items: center; justify-content: center; flex-direction: column; gap: 12px; }
+  #loading.show { display: flex; }
+  .spinner { width: 40px; height: 40px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #empty-state { display: none; flex-direction: column; align-items: center; justify-content: center; height: 200px; gap: 8px; color: var(--text-muted); font-size: 14px; }
+  #empty-state.show { display: flex; }
+  mark { background: rgba(192,57,43,.35); color: inherit; border-radius: 2px; padding: 0 1px; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--surface); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+</style>
+</head>
+<body>
+
+<div id="loading"><div class="spinner"></div><div style="color:var(--text-muted);font-size:13px">Parsing workbook…</div></div>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">🛡</div>
+    <h1>Control <span>Explorer</span></h1>
+  </div>
+  <div class="header-right">
+    <span id="row-count"></span>
+    <button id="load-btn" onclick="document.getElementById('file-input').click()">Load File</button>
+    <input type="file" id="file-input" accept=".xlsx,.xls,.csv" style="display:none">
+  </div>
+</header>
+
+<!-- Drop Zone -->
+<div id="drop-zone">
+  <div class="icon">📊</div>
+  <h2>Drop your SCF workbook here</h2>
+  <p>Supports .xlsx · .xls · .csv</p>
+  <label for="file-input">Browse File</label>
+  <p style="font-size:12px;color:#555;margin-top:4px">Processed entirely in your browser — nothing leaves your machine.</p>
+</div>
+
+<!-- Main App -->
+<div id="app">
+  <div id="main">
+
+    <!-- Sidebar -->
+    <div id="sidebar">
+
+      <div class="sidebar-section">
+        <h3>Search</h3>
+        <input id="search" type="text" placeholder="Search controls, descriptions…">
+      </div>
+
+      <div class="sidebar-section">
+        <h3>SCF Domain</h3>
+        <select id="domain-filter" class="filter-select"><option value="">All Domains</option></select>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>NIST CSF Function</h3>
+        <select id="nist-filter" class="filter-select">
+          <option value="">All Functions</option>
+        </select>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>Min Weight</h3>
+        <div class="weight-row">
+          <input type="range" id="weight-min" min="0" max="10" value="0" step="1">
+          <span id="weight-val">≥ 0</span>
+        </div>
+      </div>
+
+      <!-- Column Visibility -->
+      <div class="sidebar-section">
+        <h3>Column Visibility</h3>
+        <div class="toggle-actions">
+          <button onclick="setAllCoreColumns(true)">All</button>
+          <button onclick="setAllCoreColumns(false)">None</button>
+        </div>
+        <div class="toggle-list" id="column-toggle-list"></div>
+      </div>
+
+      <!-- Frameworks -->
+      <div class="sidebar-section">
+        <h3>Frameworks</h3>
+        <div class="toggle-actions">
+          <button onclick="setAllFrameworks(true)">All</button>
+          <button onclick="setAllFrameworks(false)">None</button>
+        </div>
+        <div class="toggle-list" id="framework-list"></div>
+      </div>
+
+      <button id="clear-filters" onclick="clearAllFilters()">↺ Reset All</button>
+    </div>
+
+    <!-- Content -->
+    <div id="content">
+      <div id="toolbar">
+        <div class="active-filters" id="active-filters"></div>
+        <span id="visible-label"></span>
+        <button id="export-btn" onclick="exportToExcel()">⬇ Export to Excel</button>
+      </div>
+      <div id="table-wrap">
+        <div id="empty-state">
+          <div style="font-size:32px">🔍</div>
+          <div>No controls match the current filters</div>
+        </div>
+        <table id="data-table">
+          <thead id="table-head"></thead>
+          <tbody id="table-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Column Filter Popover -->
+<div id="col-filter-popover">
+  <div class="popover-title" id="popover-title">Filter</div>
+  <input id="popover-search" type="text" placeholder="Search values…">
+  <div class="popover-actions">
+    <button onclick="popoverSelectAll(true)">Select All</button>
+    <button onclick="popoverSelectAll(false)">Select None</button>
+  </div>
+  <div id="popover-list"></div>
+  <div class="popover-footer">
+    <button id="popover-clear" onclick="clearPopoverFilter()">Clear Filter</button>
+    <button id="popover-apply" onclick="applyPopoverFilter()">Apply</button>
+  </div>
+</div>
+
+<!-- Detail Panel -->
+<div id="detail-panel">
+  <button id="detail-close" onclick="closeDetail()">✕</button>
+  <div id="detail-content"></div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════
+// STATE
+// ════════════════════════════════════════════════════════
+let allRows = [];
+let headers = [];
+let frameworkHeaders = [];
+let activeFrameworks = new Set();
+let sortCol = null;
+let sortDir = 1;
+let filteredRows = [];
+
+// Column filter state: colIdx -> Set of allowed values (null = no filter)
+let columnFilters = {};
+
+// Core columns definition
+const CORE_COLS = [
+  { key: 0, label: 'Domain',      cls: 'col-domain',   visible: true },
+  { key: 1, label: 'Control',     cls: 'col-control',  visible: true },
+  { key: 2, label: 'SCF #',       cls: 'col-scf',      visible: true },
+  { key: 3, label: 'Description', cls: 'col-desc',     visible: true },
+  { key: 4, label: 'Cadence',     cls: 'col-cadence',  visible: true },
+  { key: 5, label: 'ERL #',       cls: 'col-erl',      visible: true },
+  { key: 6, label: 'Question',    cls: 'col-question', visible: true },
+  { key: 7, label: 'Weight',      cls: 'col-weight',   visible: true },
+  { key: 8, label: 'NIST CSF',    cls: 'col-nist',     visible: true },
+];
+const CORE_COL_COUNT = 9;
+const [COL_DOMAIN,COL_CONTROL,COL_SCF_NUM,COL_DESC,COL_CADENCE,COL_ERL,COL_QUESTION,COL_WEIGHT,COL_NIST] = [0,1,2,3,4,5,6,7,8];
+
+// Popover state
+let popoverColIdx = null;
+let popoverAllValues = [];
+let popoverPending = new Set();
+
+// ════════════════════════════════════════════════════════
+// FILE LOADING
+// ════════════════════════════════════════════════════════
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('drag-over'); if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]); });
+fileInput.addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
+
+function loadFile(file) {
+  document.getElementById('loading').classList.add('show');
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      processData(raw);
+    } catch(err) { alert('Error reading file: ' + err.message); }
+    document.getElementById('loading').classList.remove('show');
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function processData(raw) {
+  if (!raw || raw.length < 2) { alert('No data found.'); return; }
+  headers = raw[0].map((h, i) => (h || '').toString().trim() || `Col${i+1}`);
+  frameworkHeaders = headers.slice(CORE_COL_COUNT);
+  allRows = raw.slice(1).filter(r => r.some(c => c !== ''));
+
+  // Reset state
+  columnFilters = {};
+  CORE_COLS.forEach(c => c.visible = true);
+  activeFrameworks = new Set(frameworkHeaders);
+  sortCol = null; sortDir = 1;
+
+  // Weight slider
+  const weights = allRows.map(r => parseFloat(r[COL_WEIGHT]) || 0);
+  const maxW = Math.max(...weights, 10);
+  const slider = document.getElementById('weight-min');
+  slider.max = maxW; slider.value = 0;
+  document.getElementById('weight-val').textContent = '≥ 0';
+
+  // Domain dropdown
+  const domains = [...new Set(allRows.map(r => (r[COL_DOMAIN]||'').toString().trim()))].filter(Boolean).sort();
+  const domSel = document.getElementById('domain-filter');
+  domSel.innerHTML = '<option value="">All Domains</option>';
+  domains.forEach(d => { const o = document.createElement('option'); o.value = d; o.textContent = d; domSel.appendChild(o); });
+
+  // NIST dropdown
+  const nistVals = [...new Set(allRows.map(r => (r[COL_NIST]||'').toString().trim()))].filter(Boolean).sort();
+  const nistSel = document.getElementById('nist-filter');
+  nistSel.innerHTML = '<option value="">All Functions</option>';
+  nistVals.forEach(n => { const o = document.createElement('option'); o.value = n; o.textContent = n; nistSel.appendChild(o); });
+
+  buildColumnToggles();
+  buildFrameworkToggles();
+  buildTableHeader();
+
+  document.getElementById('drop-zone').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+  document.getElementById('row-count').textContent = `${allRows.length.toLocaleString()} controls loaded`;
+
+  applyFilters();
+}
+
+// ════════════════════════════════════════════════════════
+// COLUMN VISIBILITY
+// ════════════════════════════════════════════════════════
+function buildColumnToggles() {
+  const list = document.getElementById('column-toggle-list');
+  list.innerHTML = '';
+  CORE_COLS.forEach((col, idx) => {
+    const label = document.createElement('label');
+    label.className = 'toggle-item';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.checked = col.visible;
+    cb.addEventListener('change', function() {
+      CORE_COLS[idx].visible = this.checked;
+      buildTableHeader(); renderTable(filteredRows);
+    });
+    const span = document.createElement('span');
+    span.textContent = col.label;
+    label.appendChild(cb); label.appendChild(span);
+    list.appendChild(label);
+  });
+}
+
+function setAllCoreColumns(val) {
+  CORE_COLS.forEach(c => c.visible = val);
+  document.querySelectorAll('#column-toggle-list input').forEach(cb => cb.checked = val);
+  buildTableHeader(); renderTable(filteredRows);
+}
+
+// ════════════════════════════════════════════════════════
+// FRAMEWORK VISIBILITY
+// ════════════════════════════════════════════════════════
+function buildFrameworkToggles() {
+  const list = document.getElementById('framework-list');
+  list.innerHTML = '';
+  frameworkHeaders.forEach((fw, idx) => {
+    const label = document.createElement('label');
+    label.className = 'toggle-item';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.checked = true; cb.dataset.fwIdx = idx;
+    cb.addEventListener('change', function() {
+      const name = frameworkHeaders[parseInt(this.dataset.fwIdx)];
+      if (this.checked) activeFrameworks.add(name);
+      else activeFrameworks.delete(name);
+      buildTableHeader(); renderTable(filteredRows);
+    });
+    const span = document.createElement('span');
+    span.title = fw; span.textContent = fw;
+    label.appendChild(cb); label.appendChild(span);
+    list.appendChild(label);
+  });
+}
+
+function setAllFrameworks(val) {
+  activeFrameworks = val ? new Set(frameworkHeaders) : new Set();
+  document.querySelectorAll('#framework-list input[type=checkbox]').forEach(cb => cb.checked = val);
+  buildTableHeader(); renderTable(filteredRows);
+}
+
+// ════════════════════════════════════════════════════════
+// TABLE HEADER
+// ════════════════════════════════════════════════════════
+function buildTableHeader() {
+  const head = document.getElementById('table-head');
+  const activeFws = frameworkHeaders.filter(fw => activeFrameworks.has(fw));
+  let html = '<tr>';
+
+  CORE_COLS.filter(c => c.visible).forEach(c => {
+    const isAsc  = sortCol === c.key && sortDir > 0;
+    const isDesc = sortCol === c.key && sortDir < 0;
+    const sortedCls = isAsc ? 'sorted-asc' : isDesc ? 'sorted-desc' : '';
+    const sortArrow = isAsc ? '↑' : isDesc ? '↓' : '↕';
+    const hasFilter = columnFilters[c.key] != null;
+    html += `
+      <th class="${c.cls} ${sortedCls}">
+        <div class="th-inner">
+          <div class="th-label" onclick="sortBy(${c.key})">
+            ${c.label} <span class="sort-icon">${sortArrow}</span>
+          </div>
+          <div class="th-filter-btn ${hasFilter ? 'active' : ''}" onclick="openColFilter(event, ${c.key})" title="Filter ${c.label}">▼</div>
+        </div>
+      </th>`;
+  });
+
+  activeFws.forEach(fw => {
+    const fwIdx = CORE_COL_COUNT + frameworkHeaders.indexOf(fw);
+    const isAsc  = sortCol === fwIdx && sortDir > 0;
+    const isDesc = sortCol === fwIdx && sortDir < 0;
+    const sortedCls = isAsc ? 'sorted-asc' : isDesc ? 'sorted-desc' : '';
+    const sortArrow = isAsc ? '↑' : isDesc ? '↓' : '↕';
+    const hasFilter = columnFilters[fwIdx] != null;
+    html += `
+      <th class="col-fw ${sortedCls}">
+        <div class="th-inner">
+          <div class="th-label" onclick="sortBy(${fwIdx})" title="${escHtml(fw)}">${escHtml(fw)} <span class="sort-icon">${sortArrow}</span></div>
+          <div class="th-filter-btn ${hasFilter ? 'active' : ''}" onclick="openColFilter(event, ${fwIdx})" title="Filter ${escHtml(fw)}">▼</div>
+        </div>
+      </th>`;
+  });
+
+  html += '</tr>';
+  head.innerHTML = html;
+}
+
+// ════════════════════════════════════════════════════════
+// SORTING
+// ════════════════════════════════════════════════════════
+function sortBy(colIdx) {
+  if (sortCol === colIdx) sortDir *= -1;
+  else { sortCol = colIdx; sortDir = 1; }
+  buildTableHeader(); applyFilters();
+}
+
+// ════════════════════════════════════════════════════════
+// COLUMN FILTER POPOVER
+// ════════════════════════════════════════════════════════
+function openColFilter(event, colIdx) {
+  event.stopPropagation();
+  const pop = document.getElementById('col-filter-popover');
+
+  // If same col and already open, close it
+  if (popoverColIdx === colIdx && pop.classList.contains('open')) {
+    closePopover(); return;
+  }
+
+  popoverColIdx = colIdx;
+
+  // Determine label
+  let colLabel;
+  const coreCol = CORE_COLS.find(c => c.key === colIdx);
+  if (coreCol) {
+    colLabel = coreCol.label;
+  } else {
+    colLabel = frameworkHeaders[colIdx - CORE_COL_COUNT] || `Col ${colIdx}`;
+  }
+  document.getElementById('popover-title').textContent = `Filter: ${colLabel}`;
+
+  // Gather unique values from ALL rows (not filtered) for this column
+  // Include blanks as the sentinel '__BLANK__'
+  const rawVals = allRows.map(r => {
+    const v = (r[colIdx] || '').toString().trim();
+    return v === '' ? '__BLANK__' : v;
+  });
+  const hasBlank = rawVals.includes('__BLANK__');
+  const nonBlank = [...new Set(rawVals.filter(v => v !== '__BLANK__'))].sort();
+  popoverAllValues = hasBlank ? ['__BLANK__', ...nonBlank] : nonBlank;
+
+  // Current selection
+  popoverPending = columnFilters[colIdx] ? new Set(columnFilters[colIdx]) : new Set(popoverAllValues);
+
+  document.getElementById('popover-search').value = '';
+  renderPopoverList('');
+
+  // Position below the clicked button
+  const rect = event.target.getBoundingClientRect();
+  pop.style.top  = (rect.bottom + 4) + 'px';
+  pop.style.left = Math.min(rect.left, window.innerWidth - 250) + 'px';
+  pop.classList.add('open');
+}
+
+function renderPopoverList(q) {
+  const list = document.getElementById('popover-list');
+  const filtered = q
+    ? popoverAllValues.filter(v => {
+        const display = v === '__BLANK__' ? '(blank)' : v.toLowerCase();
+        return display.includes(q.toLowerCase());
+      })
+    : popoverAllValues;
+  list.innerHTML = '';
+  filtered.forEach(val => {
+    const item = document.createElement('label');
+    item.className = 'popover-item';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.checked = popoverPending.has(val);
+    cb.addEventListener('change', function() {
+      if (this.checked) popoverPending.add(val);
+      else popoverPending.delete(val);
+    });
+    const span = document.createElement('span');
+    const displayVal = val === '__BLANK__' ? '(Blank)' : val;
+    span.title = displayVal;
+    if (val === '__BLANK__') span.style.cssText = 'color:var(--text-muted);font-style:italic';
+    span.textContent = displayVal;
+    item.appendChild(cb); item.appendChild(span);
+    list.appendChild(item);
+  });
+}
+
+document.getElementById('popover-search').addEventListener('input', function() {
+  renderPopoverList(this.value);
+});
+
+function popoverSelectAll(val) {
+  const q = document.getElementById('popover-search').value.toLowerCase();
+  const filtered = q ? popoverAllValues.filter(v => v.toLowerCase().includes(q)) : popoverAllValues;
+  filtered.forEach(v => { if (val) popoverPending.add(v); else popoverPending.delete(v); });
+  renderPopoverList(document.getElementById('popover-search').value);
+}
+
+function applyPopoverFilter() {
+  if (popoverColIdx === null) return;
+  // If all values are selected, treat as no filter
+  if (popoverPending.size >= popoverAllValues.length) {
+    delete columnFilters[popoverColIdx];
+  } else if (popoverPending.size === 0) {
+    delete columnFilters[popoverColIdx]; // nothing selected = show all
+  } else {
+    columnFilters[popoverColIdx] = new Set(popoverPending);
+  }
+  closePopover();
+  buildTableHeader();
+  applyFilters();
+}
+
+function clearPopoverFilter() {
+  if (popoverColIdx !== null) delete columnFilters[popoverColIdx];
+  closePopover();
+  buildTableHeader();
+  applyFilters();
+}
+
+function closePopover() {
+  document.getElementById('col-filter-popover').classList.remove('open');
+  popoverColIdx = null;
+}
+
+document.addEventListener('click', e => {
+  const pop = document.getElementById('col-filter-popover');
+  if (pop.classList.contains('open') && !pop.contains(e.target)) closePopover();
+});
+
+// ════════════════════════════════════════════════════════
+// SIDEBAR FILTERS
+// ════════════════════════════════════════════════════════
+let searchTimeout;
+document.getElementById('search').addEventListener('input', () => { clearTimeout(searchTimeout); searchTimeout = setTimeout(applyFilters, 200); });
+document.getElementById('domain-filter').addEventListener('change', applyFilters);
+document.getElementById('nist-filter').addEventListener('change', applyFilters);
+document.getElementById('weight-min').addEventListener('input', function() {
+  document.getElementById('weight-val').textContent = '≥ ' + this.value;
+  applyFilters();
+});
+
+function applyFilters() {
+  const q      = document.getElementById('search').value.toLowerCase().trim();
+  const domain = document.getElementById('domain-filter').value;
+  const nist   = document.getElementById('nist-filter').value;
+  const minW   = parseFloat(document.getElementById('weight-min').value) || 0;
+
+  filteredRows = allRows.filter(row => {
+    if (domain && (row[COL_DOMAIN]||'').toString().trim() !== domain) return false;
+    if (nist   && (row[COL_NIST]  ||'').toString().trim() !== nist)   return false;
+    if (minW > 0 && (parseFloat(row[COL_WEIGHT])||0) < minW)          return false;
+    if (q) {
+      const hay = [row[COL_CONTROL],row[COL_DESC],row[COL_QUESTION],row[COL_SCF_NUM],row[COL_DOMAIN]]
+        .map(v => (v||'').toString().toLowerCase()).join(' ');
+      if (!hay.includes(q)) return false;
+    }
+    // Column-level filters
+    for (const [colIdxStr, allowed] of Object.entries(columnFilters)) {
+      const raw = (row[parseInt(colIdxStr)] || '').toString().trim();
+      const key = raw === '' ? '__BLANK__' : raw;
+      if (!allowed.has(key)) return false;
+    }
+    return true;
+  });
+
+  if (sortCol !== null) {
+    filteredRows.sort((a, b) => {
+      const av = a[sortCol]||'', bv = b[sortCol]||'';
+      const an = parseFloat(av), bn = parseFloat(bv);
+      if (!isNaN(an) && !isNaN(bn)) return (an - bn) * sortDir;
+      return av.toString().localeCompare(bv.toString()) * sortDir;
+    });
+  }
+
+  updateToolbar(q, domain, nist, minW);
+  renderTable(filteredRows);
+}
+
+function updateToolbar(q, domain, nist, minW) {
+  const chips = [];
+  if (q)      chips.push({ label: `"${q}"`,          clear: () => { document.getElementById('search').value=''; applyFilters(); } });
+  if (domain) chips.push({ label: domain,             clear: () => { document.getElementById('domain-filter').value=''; applyFilters(); } });
+  if (nist)   chips.push({ label: nist,               clear: () => { document.getElementById('nist-filter').value=''; applyFilters(); } });
+  if (minW>0) chips.push({ label: `Weight ≥ ${minW}`, clear: () => { document.getElementById('weight-min').value=0; document.getElementById('weight-val').textContent='≥ 0'; applyFilters(); } });
+
+  // Column filter chips
+  Object.entries(columnFilters).forEach(([colIdxStr, allowed]) => {
+    const ci = parseInt(colIdxStr);
+    const coreCol = CORE_COLS.find(c => c.key === ci);
+    const lbl = coreCol ? coreCol.label : (frameworkHeaders[ci-CORE_COL_COUNT]||`Col ${ci}`);
+    chips.push({ label: `${lbl}: ${allowed.size} value${allowed.size===1?'':'s'}`, clear: () => { delete columnFilters[ci]; buildTableHeader(); applyFilters(); } });
+  });
+
+  window._chipClears = chips.map(c => c.clear);
+  document.getElementById('active-filters').innerHTML = chips.map((c,i) =>
+    `<span class="filter-chip">${escHtml(c.label)}<button onclick="window._chipClears[${i}]()" title="Remove">×</button></span>`
+  ).join('');
+  document.getElementById('visible-label').textContent = `${filteredRows.length.toLocaleString()} of ${allRows.length.toLocaleString()} controls`;
+}
+
+function clearAllFilters() {
+  document.getElementById('search').value = '';
+  document.getElementById('domain-filter').value = '';
+  document.getElementById('nist-filter').value = '';
+  document.getElementById('weight-min').value = 0;
+  document.getElementById('weight-val').textContent = '≥ 0';
+  columnFilters = {};
+  buildTableHeader();
+  applyFilters();
+}
+
+// ════════════════════════════════════════════════════════
+// RENDER TABLE
+// ════════════════════════════════════════════════════════
+function escHtml(str) {
+  return (str||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function highlight(text, q) {
+  if (!q || !text) return escHtml(text);
+  const esc = q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  return escHtml(text).replace(new RegExp(`(${esc})`, 'gi'), '<mark>$1</mark>');
+}
+
+function weightClass(w) { return w>=8?'w-high':w>=5?'w-med':'w-low'; }
+
+function nistBadge(val) {
+  const v = (val||'').toString().trim();
+  const cls = {'govern':'nist-govern','identify':'nist-identify','protect':'nist-protect','detect':'nist-detect','respond':'nist-respond','recover':'nist-recover'}[v.toLowerCase()]||'';
+  return `<span class="nist-badge ${cls}">${escHtml(v)}</span>`;
+}
+
+function renderTable(rows) {
+  const q = document.getElementById('search').value.toLowerCase().trim();
+  const activeFws = frameworkHeaders.filter(fw => activeFrameworks.has(fw));
+  const visibleCore = CORE_COLS.filter(c => c.visible);
+  const body = document.getElementById('table-body');
+  const empty = document.getElementById('empty-state');
+
+  if (rows.length === 0) {
+    body.innerHTML = '';
+    empty.classList.add('show');
+    document.getElementById('data-table').style.display = 'none';
+    return;
+  }
+  empty.classList.remove('show');
+  document.getElementById('data-table').style.display = '';
+
+  const html = rows.map((row, ri) => {
+    const w = parseFloat(row[COL_WEIGHT])||0;
+    const wCls = weightClass(w);
+
+    const coreCells = visibleCore.map(c => {
+      switch(c.key) {
+        case COL_DOMAIN:   return `<td class="${c.cls}"><span class="domain-tag">${highlight(row[COL_DOMAIN],q)}</span></td>`;
+        case COL_CONTROL:  return `<td class="${c.cls}"><strong>${highlight(row[COL_CONTROL],q)}</strong></td>`;
+        case COL_SCF_NUM:  return `<td class="${c.cls}" style="font-family:monospace;font-size:11px">${highlight(row[COL_SCF_NUM],q)}</td>`;
+        case COL_DESC:     return `<td class="${c.cls}" title="${escHtml(row[COL_DESC])}"><div class="truncate">${highlight(row[COL_DESC],q)}</div></td>`;
+        case COL_CADENCE:  return `<td class="${c.cls}">${escHtml(row[COL_CADENCE])}</td>`;
+        case COL_ERL:      return `<td class="${c.cls}"><div class="truncate">${escHtml(row[COL_ERL])}</div></td>`;
+        case COL_QUESTION: return `<td class="${c.cls}" title="${escHtml(row[COL_QUESTION])}"><div class="truncate">${highlight(row[COL_QUESTION],q)}</div></td>`;
+        case COL_WEIGHT:   return `<td class="${c.cls}"><span class="weight-badge ${wCls}">${w||'—'}</span></td>`;
+        case COL_NIST:     return `<td class="${c.cls}">${nistBadge(row[COL_NIST])}</td>`;
+        default: return `<td>${escHtml(row[c.key])}</td>`;
+      }
+    }).join('');
+
+    const fwCells = activeFws.map(fw => {
+      const fwIdx = CORE_COL_COUNT + frameworkHeaders.indexOf(fw);
+      const val = (row[fwIdx]||'').toString().trim();
+      return val
+        ? `<td class="col-fw" title="${escHtml(val)}"><div class="truncate">${escHtml(val)}</div></td>`
+        : `<td class="col-fw fw-empty">—</td>`;
+    }).join('');
+
+    return `<tr class="clickable" onclick="showDetail(${ri})">${coreCells}${fwCells}</tr>`;
+  }).join('');
+
+  body.innerHTML = html;
+  window._renderedRows = rows;
+}
+
+// ════════════════════════════════════════════════════════
+// DETAIL PANEL
+// ════════════════════════════════════════════════════════
+function showDetail(ri) {
+  const row = window._renderedRows[ri];
+  if (!row) return;
+  const w = parseFloat(row[COL_WEIGHT])||0;
+  const wCls = weightClass(w);
+
+  const fwMapped = frameworkHeaders.map((fw, i) => ({ fw, val: (row[CORE_COL_COUNT+i]||'').toString().trim() }));
+  const mappedHtml = fwMapped.filter(f=>f.val).map(f=>`<span class="detail-fw-chip mapped" title="${escHtml(f.val)}">${escHtml(f.fw)}</span>`).join('') || '<span style="color:var(--text-muted);font-size:12px">None</span>';
+
+  document.getElementById('detail-content').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+      <div><div class="detail-label">SCF #</div><div style="font-family:monospace;font-size:14px;color:var(--accent2)">${escHtml(row[COL_SCF_NUM])}</div></div>
+      <div style="text-align:right"><div class="detail-label">Weight</div><span class="weight-badge ${wCls}" style="width:34px;height:34px;font-size:14px">${w||'—'}</span></div>
+    </div>
+    <div class="detail-label">Domain</div><div class="detail-value" style="color:var(--text-muted)">${escHtml(row[COL_DOMAIN])}</div>
+    <hr class="detail-divider">
+    <div class="detail-label">Control</div><div class="detail-value" style="font-size:15px;font-weight:600">${escHtml(row[COL_CONTROL])}</div>
+    <hr class="detail-divider">
+    <div class="detail-label">Description</div><div class="detail-value">${escHtml(row[COL_DESC])}</div>
+    <hr class="detail-divider">
+    <div class="detail-label">Control Question</div><div class="detail-value">${escHtml(row[COL_QUESTION])}</div>
+    <hr class="detail-divider">
+    <div style="display:flex;gap:24px">
+      <div><div class="detail-label">Cadence</div><div class="detail-value">${escHtml(row[COL_CADENCE])}</div></div>
+      <div><div class="detail-label">NIST CSF</div><div class="detail-value">${nistBadge(row[COL_NIST])}</div></div>
+      <div><div class="detail-label">ERL #</div><div class="detail-value" style="font-size:11px">${escHtml(row[COL_ERL])}</div></div>
+    </div>
+    <hr class="detail-divider">
+    <div class="detail-label">Framework Mappings (${fwMapped.filter(f=>f.val).length})</div>
+    <div class="detail-fw-grid">${mappedHtml}</div>
+  `;
+  document.getElementById('detail-panel').classList.add('open');
+}
+
+function closeDetail() { document.getElementById('detail-panel').classList.remove('open'); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeDetail(); closePopover(); } });
+
+// ════════════════════════════════════════════════════════
+// EXPORT
+// ════════════════════════════════════════════════════════
+function exportToExcel() {
+  if (!filteredRows.length) { alert('Nothing to export — no rows match the current filters.'); return; }
+
+  const visibleCore = CORE_COLS.filter(c => c.visible);
+  const activeFws   = frameworkHeaders.filter(fw => activeFrameworks.has(fw));
+
+  // Build header row
+  const headerRow = [
+    ...visibleCore.map(c => c.label),
+    ...activeFws
+  ];
+
+  // Build data rows (use raw values, not HTML)
+  const dataRows = filteredRows.map(row => [
+    ...visibleCore.map(c => {
+      const v = row[c.key];
+      // Weight: return as number if possible
+      if (c.key === COL_WEIGHT) return parseFloat(v) || v || '';
+      return (v || '').toString().trim();
+    }),
+    ...activeFws.map(fw => {
+      const fwIdx = CORE_COL_COUNT + frameworkHeaders.indexOf(fw);
+      return (row[fwIdx] || '').toString().trim();
+    })
+  ]);
+
+  const aoa = [headerRow, ...dataRows];
+  const ws  = XLSX.utils.aoa_to_sheet(aoa);
+
+  // Column widths (approximate)
+  const colWidths = [
+    ...visibleCore.map(c => ({
+      wch: { 0:22, 1:28, 2:10, 3:50, 4:10, 5:18, 6:50, 7:8, 8:12 }[c.key] || 20
+    })),
+    ...activeFws.map(() => ({ wch: 20 }))
+  ];
+  ws['!cols'] = colWidths;
+
+  // Freeze top row
+  ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+
+  // Style header row cells bold (basic)
+  const range = XLSX.utils.decode_range(ws['!ref']);
+  for (let C = range.s.c; C <= range.e.c; C++) {
+    const addr = XLSX.utils.encode_cell({ r: 0, c: C });
+    if (!ws[addr]) continue;
+    ws[addr].s = { font: { bold: true }, fill: { fgColor: { rgb: 'C0392B' } }, fontColor: { rgb: 'FFFFFF' } };
+  }
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Controls');
+
+  // Build a descriptive filename reflecting active filters
+  const domain = document.getElementById('domain-filter').value;
+  const nist   = document.getElementById('nist-filter').value;
+  const minW   = document.getElementById('weight-min').value;
+  const parts  = ['control_explorer'];
+  if (domain) parts.push(domain.replace(/[^a-zA-Z0-9]/g,'_').slice(0,20));
+  if (nist)   parts.push(nist);
+  if (minW>0) parts.push(`w${minW}plus`);
+  parts.push(`${filteredRows.length}rows`);
+  const filename = parts.join('_') + '.xlsx';
+
+  XLSX.writeFile(wb, filename);
+}
+</script>
+</body>
+</html>
