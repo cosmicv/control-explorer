@@ -124,6 +124,7 @@
   .col-weight   { width: 58px;  max-width: 65px;  text-align: center; }
   .col-nist     { width: 78px;  max-width: 90px; }
   .col-fw       { width: 90px;  max-width: 120px; text-align: center; font-size: 11px; }
+  .col-extra    { width: 140px; max-width: 180px; font-size: 11px; }
   .truncate { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 
   /* Badges */
@@ -353,20 +354,89 @@ let filteredRows = [];
 // Column filter state: colIdx -> Set of allowed values (null = no filter)
 let columnFilters = {};
 
-// Core columns definition
-const CORE_COLS = [
-  { key: 0, label: 'Domain',      cls: 'col-domain',   visible: true },
-  { key: 1, label: 'Control',     cls: 'col-control',  visible: true },
-  { key: 2, label: 'SCF #',       cls: 'col-scf',      visible: true },
-  { key: 3, label: 'Description', cls: 'col-desc',     visible: true },
-  { key: 4, label: 'Cadence',     cls: 'col-cadence',  visible: true },
-  { key: 5, label: 'ERL #',       cls: 'col-erl',      visible: true },
-  { key: 6, label: 'Question',    cls: 'col-question', visible: true },
-  { key: 7, label: 'Weight',      cls: 'col-weight',   visible: true },
-  { key: 8, label: 'NIST CSF',    cls: 'col-nist',     visible: true },
+// Core columns — rebuilt dynamically on each file load
+const CORE_COLS = [];
+let CORE_COL_COUNT = 9;
+
+// Key column indices — detected by header name at load time
+let COL_DOMAIN=0, COL_CONTROL=1, COL_SCF_NUM=2, COL_DESC=3, COL_CADENCE=4,
+    COL_ERL=5, COL_QUESTION=6, COL_WEIGHT=7, COL_NIST=8;
+
+// ── Column detection helpers ──────────────────────────────
+function findCol(hdrs, ...terms) {
+  for (let i = 0; i < hdrs.length; i++) {
+    const h = hdrs[i].toLowerCase().trim();
+    if (terms.some(t => h.includes(t.toLowerCase()))) return i;
+  }
+  return -1;
+}
+
+function detectColumns(hdrs) {
+  COL_DOMAIN   = findCol(hdrs, 'scf domain');
+  COL_SCF_NUM  = findCol(hdrs, 'scf #');
+  COL_DESC     = findCol(hdrs, 'control description');
+  COL_CADENCE  = findCol(hdrs, 'conformity validation', 'validation cadence');
+  COL_ERL      = findCol(hdrs, 'evidence request list', 'erl #');
+  COL_QUESTION = findCol(hdrs, 'control question');
+  COL_WEIGHT   = findCol(hdrs, 'relative control weighting', 'control weighting');
+  COL_NIST     = findCol(hdrs, 'nist csf function');
+  // SCF Control: exact match on "scf control" to avoid matching description
+  COL_CONTROL  = hdrs.findIndex(h => h.toLowerCase().trim() === 'scf control');
+  if (COL_CONTROL === -1) COL_CONTROL = findCol(hdrs, 'scf control');
+}
+
+// Frameworks start at the first column matching a known external framework name
+const FRAMEWORK_STARTERS = [
+  'AICPA','APEC','BSI ','CIS CSC','COBIT','COSO','CSA ','ENISA','Generally Accepted',
+  'GovRAMP','IEC ','IMO ','ISO/SAE','ISO 2','ISO 3','ISO 4','MITRE','MPA ','NAIC',
+  'NIST 800','NIST AI','NIST Privacy','OECD','OWASP','PCI ','Shared Assess','SPARTA',
+  'SWIFT','TISAX','UL ','UN R','UN ECE','US C2M','US CERT','US CISA','US CJIS',
+  'US CMM','US CMS','US COPPA','US D','US E','US F','US G','US H','US I','US N',
+  'US S','US T','US -','EMEA ','APAC ','Americas ','SCF CORE','Minimum Security',
+  'Identify Minimum','Identify Discretionary','Risk ','Control Threat','Threat '
 ];
-const CORE_COL_COUNT = 9;
-const [COL_DOMAIN,COL_CONTROL,COL_SCF_NUM,COL_DESC,COL_CADENCE,COL_ERL,COL_QUESTION,COL_WEIGHT,COL_NIST] = [0,1,2,3,4,5,6,7,8];
+
+function detectFrameworkStart(hdrs) {
+  for (let i = 0; i < hdrs.length; i++) {
+    const h = hdrs[i].trim();
+    if (h && FRAMEWORK_STARTERS.some(s => h.startsWith(s))) return i;
+  }
+  return hdrs.length;
+}
+
+function buildCoreCols(hdrs, fwStart) {
+  CORE_COLS.length = 0;
+  // Primary columns always shown first in this fixed display order
+  const primary = [
+    { key: COL_DOMAIN,   label: 'Domain',      cls: 'col-domain',   visible: true },
+    { key: COL_CONTROL,  label: 'Control',      cls: 'col-control',  visible: true },
+    { key: COL_SCF_NUM,  label: 'SCF #',        cls: 'col-scf',      visible: true },
+    { key: COL_DESC,     label: 'Description',  cls: 'col-desc',     visible: true },
+    { key: COL_CADENCE,  label: 'Cadence',      cls: 'col-cadence',  visible: true },
+    { key: COL_ERL,      label: 'ERL #',        cls: 'col-erl',      visible: true },
+    { key: COL_QUESTION, label: 'Question',     cls: 'col-question', visible: true },
+    { key: COL_WEIGHT,   label: 'Weight',       cls: 'col-weight',   visible: true },
+    { key: COL_NIST,     label: 'NIST CSF',     cls: 'col-nist',     visible: true },
+  ];
+  primary.forEach(c => { if (c.key >= 0) CORE_COLS.push(c); });
+
+  // Any remaining cols before framework start become hidden-by-default extras
+  const primaryKeys = new Set(primary.map(c => c.key));
+  for (let i = 0; i < fwStart; i++) {
+    if (!primaryKeys.has(i)) {
+      const lbl = (hdrs[i] || `Col ${i+1}`).trim();
+      // Skip blank/single-char spacer columns
+      if (lbl.length <= 1) continue;
+      CORE_COLS.push({
+        key: i,
+        label: lbl.length > 30 ? lbl.slice(0, 28) + '…' : lbl,
+        fullLabel: lbl,
+        cls: 'col-extra',
+        visible: false
+      });
+    }
+  }
+}
 
 // Popover state
 let popoverColIdx = null;
@@ -435,12 +505,17 @@ function showSheetPicker(wb) {
 function processData(raw) {
   if (!raw || raw.length < 2) { alert('No data found.'); return; }
   headers = raw[0].map((h, i) => (h || '').toString().trim() || `Col${i+1}`);
+
+  // Detect column positions and framework boundary from header names
+  detectColumns(headers);
+  CORE_COL_COUNT = detectFrameworkStart(headers);
+  buildCoreCols(headers, CORE_COL_COUNT);
   frameworkHeaders = headers.slice(CORE_COL_COUNT);
+
   allRows = raw.slice(1).filter(r => r.some(c => c !== ''));
 
   // Reset state
   columnFilters = {};
-  CORE_COLS.forEach(c => c.visible = true);
   activeFrameworks = new Set(frameworkHeaders);
   sortCol = null; sortDir = 1;
 
@@ -491,6 +566,7 @@ function buildColumnToggles() {
     });
     const span = document.createElement('span');
     span.textContent = col.label;
+    if (col.fullLabel) span.title = col.fullLabel;
     label.appendChild(cb); label.appendChild(span);
     list.appendChild(label);
   });
@@ -725,7 +801,7 @@ function applyFilters() {
   filteredRows = allRows.filter(row => {
     if (domain && (row[COL_DOMAIN]||'').toString().trim() !== domain) return false;
     if (nist   && (row[COL_NIST]  ||'').toString().trim() !== nist)   return false;
-    if (minW > 0 && (parseFloat(row[COL_WEIGHT])||0) < minW)          return false;
+    if (minW > 0) { const wv = parseFloat((row[COL_WEIGHT]??'').toString().trim()); if (isNaN(wv) || wv < minW) return false; }
     if (q) {
       const hay = [row[COL_CONTROL],row[COL_DESC],row[COL_QUESTION],row[COL_SCF_NUM],row[COL_DOMAIN]]
         .map(v => (v||'').toString().toLowerCase()).join(' ');
@@ -799,7 +875,7 @@ function highlight(text, q) {
   return escHtml(text).replace(new RegExp(`(${esc})`, 'gi'), '<mark>$1</mark>');
 }
 
-function weightClass(w) { return w>=8?'w-high':w>=5?'w-med':'w-low'; }
+function weightClass(w) { return w===null?'':w>=8?'w-high':w>=5?'w-med':'w-low'; }
 
 function nistBadge(val) {
   const v = (val||'').toString().trim();
@@ -824,7 +900,8 @@ function renderTable(rows) {
   document.getElementById('data-table').style.display = '';
 
   const html = rows.map((row, ri) => {
-    const w = parseFloat(row[COL_WEIGHT])||0;
+    const wRaw = (row[COL_WEIGHT] ?? '').toString().trim();
+    const w = wRaw !== '' && !isNaN(parseFloat(wRaw)) ? parseFloat(wRaw) : null;
     const wCls = weightClass(w);
 
     const coreCells = visibleCore.map(c => {
@@ -836,7 +913,7 @@ function renderTable(rows) {
         case COL_CADENCE:  return `<td class="${c.cls}">${escHtml(row[COL_CADENCE])}</td>`;
         case COL_ERL:      return `<td class="${c.cls}"><div class="truncate">${escHtml(row[COL_ERL])}</div></td>`;
         case COL_QUESTION: return `<td class="${c.cls}" title="${escHtml(row[COL_QUESTION])}"><div class="truncate">${highlight(row[COL_QUESTION],q)}</div></td>`;
-        case COL_WEIGHT:   return `<td class="${c.cls}"><span class="weight-badge ${wCls}">${w||'—'}</span></td>`;
+        case COL_WEIGHT:   return `<td class="${c.cls}"><span class="weight-badge ${wCls}">${w !== null ? w : '—'}</span></td>`;
         case COL_NIST:     return `<td class="${c.cls}">${nistBadge(row[COL_NIST])}</td>`;
         default: return `<td>${escHtml(row[c.key])}</td>`;
       }
@@ -872,7 +949,7 @@ function showDetail(ri) {
   document.getElementById('detail-content').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
       <div><div class="detail-label">SCF #</div><div style="font-family:monospace;font-size:14px;color:var(--accent2)">${escHtml(row[COL_SCF_NUM])}</div></div>
-      <div style="text-align:right"><div class="detail-label">Weight</div><span class="weight-badge ${wCls}" style="width:34px;height:34px;font-size:14px">${w||'—'}</span></div>
+      <div style="text-align:right"><div class="detail-label">Weight</div><span class="weight-badge ${wCls}" style="width:34px;height:34px;font-size:14px">${w !== null ? w : '—'}</span></div>
     </div>
     <div class="detail-label">Domain</div><div class="detail-value" style="color:var(--text-muted)">${escHtml(row[COL_DOMAIN])}</div>
     <hr class="detail-divider">
