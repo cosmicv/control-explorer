@@ -181,6 +181,18 @@
   .detail-fw-chip { background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 2px 7px; font-size: 11px; color: var(--text-muted); }
   .detail-fw-chip.mapped { border-color: var(--green); color: var(--green); background: rgba(39,174,96,.08); }
 
+  /* ── Sheet Picker Modal ── */
+  #sheet-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 998; align-items: center; justify-content: center; }
+  #sheet-modal.open { display: flex; }
+  #sheet-modal-box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 24px; width: 360px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
+  #sheet-modal-box h2 { font-size: 15px; font-weight: 600; }
+  #sheet-modal-box p { font-size: 12px; color: var(--text-muted); }
+  #sheet-list { display: flex; flex-direction: column; gap: 6px; max-height: 280px; overflow-y: auto; }
+  .sheet-option { padding: 9px 12px; border-radius: 6px; border: 1px solid var(--border); cursor: pointer; font-size: 13px; transition: all .15s; display: flex; align-items: center; justify-content: space-between; }
+  .sheet-option:hover { border-color: var(--accent); background: rgba(192,57,43,.08); }
+  .sheet-option.recommended { border-color: var(--green); background: rgba(39,174,96,.08); }
+  .sheet-option.recommended::after { content: 'recommended'; font-size: 10px; color: var(--green); font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
+
   /* ── Misc ── */
   #loading { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 999; align-items: center; justify-content: center; flex-direction: column; gap: 12px; }
   #loading.show { display: flex; }
@@ -198,6 +210,15 @@
 <body>
 
 <div id="loading"><div class="spinner"></div><div style="color:var(--text-muted);font-size:13px">Parsing workbook…</div></div>
+
+<!-- Sheet Picker -->
+<div id="sheet-modal">
+  <div id="sheet-modal-box">
+    <h2>Select a worksheet</h2>
+    <p>This workbook contains multiple sheets. Choose the one to load into Control Explorer.</p>
+    <div id="sheet-list"></div>
+  </div>
+</div>
 
 <header>
   <div class="logo">
@@ -369,20 +390,46 @@ function loadFile(file) {
   reader.onload = e => {
     try {
       const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
-      const TARGET_SHEET = 'SCF 2025.4';
-      const sheetName = wb.SheetNames.includes(TARGET_SHEET)
-        ? TARGET_SHEET
-        : wb.SheetNames[0];
-      if (!wb.SheetNames.includes(TARGET_SHEET)) {
-        console.warn(`Sheet "${TARGET_SHEET}" not found — loading "${sheetName}" instead.`);
+      if (wb.SheetNames.length === 1) {
+        const raw = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
+        processData(raw);
+        document.getElementById('loading').classList.remove('show');
+      } else {
+        document.getElementById('loading').classList.remove('show');
+        showSheetPicker(wb);
       }
-      const ws = wb.Sheets[sheetName];
-      const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-      processData(raw);
-    } catch(err) { alert('Error reading file: ' + err.message); }
-    document.getElementById('loading').classList.remove('show');
+    } catch(err) {
+      document.getElementById('loading').classList.remove('show');
+      alert('Error reading file: ' + err.message);
+    }
   };
   reader.readAsArrayBuffer(file);
+}
+
+const PREFERRED_SHEET = 'SCF 2025.4';
+
+function showSheetPicker(wb) {
+  const list = document.getElementById('sheet-list');
+  list.innerHTML = '';
+  wb.SheetNames.forEach(name => {
+    const div = document.createElement('div');
+    div.className = 'sheet-option' + (name === PREFERRED_SHEET ? ' recommended' : '');
+    div.textContent = name;
+    div.addEventListener('click', () => {
+      document.getElementById('sheet-modal').classList.remove('open');
+      document.getElementById('loading').classList.add('show');
+      // Small delay so loading spinner renders before parsing
+      setTimeout(() => {
+        try {
+          const raw = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '' });
+          processData(raw);
+        } catch(err) { alert('Error reading sheet: ' + err.message); }
+        document.getElementById('loading').classList.remove('show');
+      }, 50);
+    });
+    list.appendChild(div);
+  });
+  document.getElementById('sheet-modal').classList.add('open');
 }
 
 function processData(raw) {

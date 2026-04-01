@@ -28,7 +28,7 @@ This tool is designed to work with the **Secure Controls Framework (SCF)** maste
 
 The workbook includes the full SCF control library pre-mapped to dozens of frameworks (NIST 800-53, CIS Controls, CMMC, ISO 27001, SOC 2, and many more). Download the `.xlsx` version and load it directly into Control Explorer.
 
-Control Explorer will automatically target the **SCF 2025.4** sheet. If that sheet isn't present (e.g. a future version with a different name), it falls back to the first sheet in the workbook.
+The SCF workbook contains multiple sheets. When you load it, Control Explorer will display a sheet picker listing all available sheets — the **SCF 2025.4** sheet will be highlighted as recommended. Single-sheet workbooks load directly without prompting.
 
 ## Expected File Format
 
