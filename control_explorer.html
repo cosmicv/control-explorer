@@ -345,8 +345,9 @@
 // ════════════════════════════════════════════════════════
 let allRows = [];
 let headers = [];
-let frameworkHeaders = [];
-let activeFrameworks = new Set();
+// Non-primary columns (anything not in the 9 detected SCF fields), in sheet order — includes Possible Solutions, PPTDF, ISO, NIST 800-53, etc.
+let frameworkColumns = []; // { idx, name, label }
+let activeFrameworks = new Set(); // column indices (idx)
 let sortCol = null;
 let sortDir = 1;
 let filteredRows = [];
@@ -354,9 +355,8 @@ let filteredRows = [];
 // Column filter state: colIdx -> Set of allowed values (null = no filter)
 let columnFilters = {};
 
-// Core columns — rebuilt dynamically on each file load
+// Core columns — rebuilt dynamically on each file load (detected primaries only)
 const CORE_COLS = [];
-let CORE_COL_COUNT = 9;
 
 // Key column indices — detected by header name at load time
 let COL_DOMAIN=0, COL_CONTROL=1, COL_SCF_NUM=2, COL_DESC=3, COL_CADENCE=4,
@@ -379,34 +379,24 @@ function detectColumns(hdrs) {
   COL_ERL      = findCol(hdrs, 'evidence request list', 'erl #');
   COL_QUESTION = findCol(hdrs, 'control question');
   COL_WEIGHT   = findCol(hdrs, 'relative control weighting', 'control weighting');
-  COL_NIST     = findCol(hdrs, 'nist csf function');
-  // SCF Control: exact match on "scf control" to avoid matching description
+  COL_NIST     = findCol(hdrs, 'nist csf function', 'nist csf 2.0 function', 'nist csf');
+  // SCF Control: prefer exact match to avoid catching description column
   COL_CONTROL  = hdrs.findIndex(h => h.toLowerCase().trim() === 'scf control');
   if (COL_CONTROL === -1) COL_CONTROL = findCol(hdrs, 'scf control');
+  // Debug: log detected indices to console
+  console.log('Detected columns:', {COL_DOMAIN,COL_CONTROL,COL_SCF_NUM,COL_DESC,COL_CADENCE,COL_ERL,COL_QUESTION,COL_WEIGHT,COL_NIST});
 }
 
-// Frameworks start at the first column matching a known external framework name
-const FRAMEWORK_STARTERS = [
-  'AICPA','APEC','BSI ','CIS CSC','COBIT','COSO','CSA ','ENISA','Generally Accepted',
-  'GovRAMP','IEC ','IMO ','ISO/SAE','ISO 2','ISO 3','ISO 4','MITRE','MPA ','NAIC',
-  'NIST 800','NIST AI','NIST Privacy','OECD','OWASP','PCI ','Shared Assess','SPARTA',
-  'SWIFT','TISAX','UL ','UN R','UN ECE','US C2M','US CERT','US CISA','US CJIS',
-  'US CMM','US CMS','US COPPA','US D','US E','US F','US G','US H','US I','US N',
-  'US S','US T','US -','EMEA ','APAC ','Americas ','SCF CORE','Minimum Security',
-  'Identify Minimum','Identify Discretionary','Risk ','Control Threat','Threat '
-];
-
-function detectFrameworkStart(hdrs) {
-  for (let i = 0; i < hdrs.length; i++) {
-    const h = hdrs[i].trim();
-    if (h && FRAMEWORK_STARTERS.some(s => h.startsWith(s))) return i;
-  }
-  return hdrs.length;
+function getPrimaryIndices() {
+  const s = new Set();
+  [COL_DOMAIN, COL_CONTROL, COL_SCF_NUM, COL_DESC, COL_CADENCE, COL_ERL, COL_QUESTION, COL_WEIGHT, COL_NIST].forEach(k => {
+    if (k >= 0) s.add(k);
+  });
+  return s;
 }
 
-function buildCoreCols(hdrs, fwStart) {
+function buildCoreCols() {
   CORE_COLS.length = 0;
-  // Primary columns always shown first in this fixed display order
   const primary = [
     { key: COL_DOMAIN,   label: 'Domain',      cls: 'col-domain',   visible: true },
     { key: COL_CONTROL,  label: 'Control',      cls: 'col-control',  visible: true },
@@ -419,23 +409,26 @@ function buildCoreCols(hdrs, fwStart) {
     { key: COL_NIST,     label: 'NIST CSF',     cls: 'col-nist',     visible: true },
   ];
   primary.forEach(c => { if (c.key >= 0) CORE_COLS.push(c); });
+}
 
-  // Any remaining cols before framework start become hidden-by-default extras
-  const primaryKeys = new Set(primary.map(c => c.key));
-  for (let i = 0; i < fwStart; i++) {
-    if (!primaryKeys.has(i)) {
-      const lbl = (hdrs[i] || `Col ${i+1}`).trim();
-      // Skip blank/single-char spacer columns
-      if (lbl.length <= 1) continue;
-      CORE_COLS.push({
-        key: i,
-        label: lbl.length > 30 ? lbl.slice(0, 28) + '…' : lbl,
-        fullLabel: lbl,
-        cls: 'col-extra',
-        visible: false
-      });
-    }
+function buildFrameworkColumns(hdrs) {
+  const primary = getPrimaryIndices();
+  const out = [];
+  for (let i = 0; i < hdrs.length; i++) {
+    if (primary.has(i)) continue;
+    const name = (hdrs[i] || `Col ${i + 1}`).toString().trim();
+    if (name.length <= 1) continue;
+    out.push({
+      idx: i,
+      name,
+      label: name.length > 30 ? name.slice(0, 28) + '…' : name
+    });
   }
+  return out;
+}
+
+function frameworkMetaAtIdx(colIdx) {
+  return frameworkColumns.find(f => f.idx === colIdx);
 }
 
 // Popover state
@@ -506,17 +499,16 @@ function processData(raw) {
   if (!raw || raw.length < 2) { alert('No data found.'); return; }
   headers = raw[0].map((h, i) => (h || '').toString().trim() || `Col${i+1}`);
 
-  // Detect column positions and framework boundary from header names
+  // Detect column positions; every non-primary column becomes a framework toggle (sheet order)
   detectColumns(headers);
-  CORE_COL_COUNT = detectFrameworkStart(headers);
-  buildCoreCols(headers, CORE_COL_COUNT);
-  frameworkHeaders = headers.slice(CORE_COL_COUNT);
+  buildCoreCols();
+  frameworkColumns = buildFrameworkColumns(headers);
 
   allRows = raw.slice(1).filter(r => r.some(c => c !== ''));
 
   // Reset state
   columnFilters = {};
-  activeFrameworks = new Set(frameworkHeaders);
+  activeFrameworks = new Set(); // all frameworks off by default
   sortCol = null; sortDir = 1;
 
   // Weight slider
@@ -584,27 +576,27 @@ function setAllCoreColumns(val) {
 function buildFrameworkToggles() {
   const list = document.getElementById('framework-list');
   list.innerHTML = '';
-  frameworkHeaders.forEach((fw, idx) => {
+  frameworkColumns.forEach((fc) => {
     const label = document.createElement('label');
     label.className = 'toggle-item';
     const cb = document.createElement('input');
-    cb.type = 'checkbox'; cb.checked = true; cb.dataset.fwIdx = idx;
+    cb.type = 'checkbox'; cb.checked = false; cb.dataset.colIdx = String(fc.idx);
     cb.addEventListener('change', function() {
-      const name = frameworkHeaders[parseInt(this.dataset.fwIdx)];
-      if (this.checked) activeFrameworks.add(name);
-      else activeFrameworks.delete(name);
+      const idx = parseInt(this.dataset.colIdx, 10);
+      if (this.checked) activeFrameworks.add(idx);
+      else activeFrameworks.delete(idx);
       buildTableHeader(); renderTable(filteredRows);
     });
     const span = document.createElement('span');
-    span.title = fw; span.textContent = fw;
+    span.title = fc.name; span.textContent = fc.label;
     label.appendChild(cb); label.appendChild(span);
     list.appendChild(label);
   });
 }
 
 function setAllFrameworks(val) {
-  activeFrameworks = val ? new Set(frameworkHeaders) : new Set();
-  document.querySelectorAll('#framework-list input[type=checkbox]').forEach(cb => cb.checked = val);
+  activeFrameworks = val ? new Set(frameworkColumns.map(f => f.idx)) : new Set();
+  document.querySelectorAll('#framework-list input[type=checkbox]').forEach(cb => { cb.checked = val; });
   buildTableHeader(); renderTable(filteredRows);
 }
 
@@ -613,7 +605,7 @@ function setAllFrameworks(val) {
 // ════════════════════════════════════════════════════════
 function buildTableHeader() {
   const head = document.getElementById('table-head');
-  const activeFws = frameworkHeaders.filter(fw => activeFrameworks.has(fw));
+  const activeFws = frameworkColumns.filter(fc => activeFrameworks.has(fc.idx)).sort((a, b) => a.idx - b.idx);
   let html = '<tr>';
 
   CORE_COLS.filter(c => c.visible).forEach(c => {
@@ -633,8 +625,8 @@ function buildTableHeader() {
       </th>`;
   });
 
-  activeFws.forEach(fw => {
-    const fwIdx = CORE_COL_COUNT + frameworkHeaders.indexOf(fw);
+  activeFws.forEach(fc => {
+    const fwIdx = fc.idx;
     const isAsc  = sortCol === fwIdx && sortDir > 0;
     const isDesc = sortCol === fwIdx && sortDir < 0;
     const sortedCls = isAsc ? 'sorted-asc' : isDesc ? 'sorted-desc' : '';
@@ -643,8 +635,8 @@ function buildTableHeader() {
     html += `
       <th class="col-fw ${sortedCls}">
         <div class="th-inner">
-          <div class="th-label" onclick="sortBy(${fwIdx})" title="${escHtml(fw)}">${escHtml(fw)} <span class="sort-icon">${sortArrow}</span></div>
-          <div class="th-filter-btn ${hasFilter ? 'active' : ''}" onclick="openColFilter(event, ${fwIdx})" title="Filter ${escHtml(fw)}">▼</div>
+          <div class="th-label" onclick="sortBy(${fwIdx})" title="${escHtml(fc.name)}">${escHtml(fc.label)} <span class="sort-icon">${sortArrow}</span></div>
+          <div class="th-filter-btn ${hasFilter ? 'active' : ''}" onclick="openColFilter(event, ${fwIdx})" title="Filter ${escHtml(fc.name)}">▼</div>
         </div>
       </th>`;
   });
@@ -682,7 +674,8 @@ function openColFilter(event, colIdx) {
   if (coreCol) {
     colLabel = coreCol.label;
   } else {
-    colLabel = frameworkHeaders[colIdx - CORE_COL_COUNT] || `Col ${colIdx}`;
+    const fm = frameworkMetaAtIdx(colIdx);
+    colLabel = fm ? fm.label : `Col ${colIdx}`;
   }
   document.getElementById('popover-title').textContent = `Filter: ${colLabel}`;
 
@@ -840,7 +833,8 @@ function updateToolbar(q, domain, nist, minW) {
   Object.entries(columnFilters).forEach(([colIdxStr, allowed]) => {
     const ci = parseInt(colIdxStr);
     const coreCol = CORE_COLS.find(c => c.key === ci);
-    const lbl = coreCol ? coreCol.label : (frameworkHeaders[ci-CORE_COL_COUNT]||`Col ${ci}`);
+    const fm = frameworkMetaAtIdx(ci);
+    const lbl = coreCol ? coreCol.label : (fm ? fm.label : `Col ${ci}`);
     chips.push({ label: `${lbl}: ${allowed.size} value${allowed.size===1?'':'s'}`, clear: () => { delete columnFilters[ci]; buildTableHeader(); applyFilters(); } });
   });
 
@@ -885,7 +879,7 @@ function nistBadge(val) {
 
 function renderTable(rows) {
   const q = document.getElementById('search').value.toLowerCase().trim();
-  const activeFws = frameworkHeaders.filter(fw => activeFrameworks.has(fw));
+  const activeFws = frameworkColumns.filter(fc => activeFrameworks.has(fc.idx)).sort((a, b) => a.idx - b.idx);
   const visibleCore = CORE_COLS.filter(c => c.visible);
   const body = document.getElementById('table-body');
   const empty = document.getElementById('empty-state');
@@ -905,26 +899,25 @@ function renderTable(rows) {
     const wCls = weightClass(w);
 
     const coreCells = visibleCore.map(c => {
-      switch(c.key) {
-        case COL_DOMAIN:   return `<td class="${c.cls}"><span class="domain-tag">${highlight(row[COL_DOMAIN],q)}</span></td>`;
-        case COL_CONTROL:  return `<td class="${c.cls}"><strong>${highlight(row[COL_CONTROL],q)}</strong></td>`;
-        case COL_SCF_NUM:  return `<td class="${c.cls}" style="font-family:monospace;font-size:11px">${highlight(row[COL_SCF_NUM],q)}</td>`;
-        case COL_DESC:     return `<td class="${c.cls}" title="${escHtml(row[COL_DESC])}"><div class="truncate">${highlight(row[COL_DESC],q)}</div></td>`;
-        case COL_CADENCE:  return `<td class="${c.cls}">${escHtml(row[COL_CADENCE])}</td>`;
-        case COL_ERL:      return `<td class="${c.cls}"><div class="truncate">${escHtml(row[COL_ERL])}</div></td>`;
-        case COL_QUESTION: return `<td class="${c.cls}" title="${escHtml(row[COL_QUESTION])}"><div class="truncate">${highlight(row[COL_QUESTION],q)}</div></td>`;
-        case COL_WEIGHT:   return `<td class="${c.cls}"><span class="weight-badge ${wCls}">${w !== null ? w : '—'}</span></td>`;
-        case COL_NIST:     return `<td class="${c.cls}">${nistBadge(row[COL_NIST])}</td>`;
-        default: return `<td>${escHtml(row[c.key])}</td>`;
-      }
+      // Use explicit key comparisons so the renderer is always tied to the
+      // dynamically-detected column index — not a hardcoded position.
+      if (c.key === COL_DOMAIN)   return `<td class="${c.cls}"><span class="domain-tag">${highlight(row[COL_DOMAIN],q)}</span></td>`;
+      if (c.key === COL_CONTROL)  return `<td class="${c.cls}"><strong>${highlight(row[COL_CONTROL],q)}</strong></td>`;
+      if (c.key === COL_SCF_NUM)  return `<td class="${c.cls}" style="font-family:monospace;font-size:11px">${highlight(row[COL_SCF_NUM],q)}</td>`;
+      if (c.key === COL_DESC)     return `<td class="${c.cls}" title="${escHtml(row[COL_DESC])}"><div class="truncate">${highlight(row[COL_DESC],q)}</div></td>`;
+      if (c.key === COL_CADENCE)  return `<td class="${c.cls}">${escHtml(row[COL_CADENCE])}</td>`;
+      if (c.key === COL_ERL)      return `<td class="${c.cls}"><div class="truncate">${escHtml(row[COL_ERL])}</div></td>`;
+      if (c.key === COL_QUESTION) return `<td class="${c.cls}" title="${escHtml(row[COL_QUESTION])}"><div class="truncate">${highlight(row[COL_QUESTION],q)}</div></td>`;
+      if (c.key === COL_WEIGHT)   return `<td class="${c.cls}"><span class="weight-badge ${wCls}">${w !== null ? w : '—'}</span></td>`;
+      if (c.key === COL_NIST)     return `<td class="${c.cls}">${nistBadge(row[COL_NIST])}</td>`;
+      // Extra SCF columns (Possible Solutions, PPTDF, etc.) — only reached if visible
+      return `<td class="${c.cls}"><div class="truncate" title="${escHtml(row[c.key])}">${escHtml(row[c.key])}</div></td>`;
     }).join('');
 
-    const fwCells = activeFws.map(fw => {
-      const fwIdx = CORE_COL_COUNT + frameworkHeaders.indexOf(fw);
-      const val = (row[fwIdx]||'').toString().trim();
-      return val
-        ? `<td class="col-fw" title="${escHtml(val)}"><div class="truncate">${escHtml(val)}</div></td>`
-        : `<td class="col-fw fw-empty">—</td>`;
+    const fwCells = activeFws.map(fc => {
+      const val = (row[fc.idx]||'').toString().trim();
+      if (!val) return `<td class="col-fw fw-empty">—</td>`;
+      return `<td class="col-fw" title="${escHtml(val)}"><div class="truncate">${escHtml(val)}</div></td>`;
     }).join('');
 
     return `<tr class="clickable" onclick="showDetail(${ri})">${coreCells}${fwCells}</tr>`;
@@ -943,8 +936,8 @@ function showDetail(ri) {
   const w = parseFloat(row[COL_WEIGHT])||0;
   const wCls = weightClass(w);
 
-  const fwMapped = frameworkHeaders.map((fw, i) => ({ fw, val: (row[CORE_COL_COUNT+i]||'').toString().trim() }));
-  const mappedHtml = fwMapped.filter(f=>f.val).map(f=>`<span class="detail-fw-chip mapped" title="${escHtml(f.val)}">${escHtml(f.fw)}</span>`).join('') || '<span style="color:var(--text-muted);font-size:12px">None</span>';
+  const fwMapped = frameworkColumns.map(fc => ({ label: fc.label, name: fc.name, val: (row[fc.idx]||'').toString().trim() }));
+  const mappedHtml = fwMapped.filter(f=>f.val).map(f=>`<span class="detail-fw-chip mapped" title="${escHtml(f.name)}: ${escHtml(f.val)}">${escHtml(f.label)}</span>`).join('') || '<span style="color:var(--text-muted);font-size:12px">None</span>';
 
   document.getElementById('detail-content').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
@@ -981,12 +974,12 @@ function exportToExcel() {
   if (!filteredRows.length) { alert('Nothing to export — no rows match the current filters.'); return; }
 
   const visibleCore = CORE_COLS.filter(c => c.visible);
-  const activeFws   = frameworkHeaders.filter(fw => activeFrameworks.has(fw));
+  const activeFws   = frameworkColumns.filter(fc => activeFrameworks.has(fc.idx)).sort((a, b) => a.idx - b.idx);
 
   // Build header row
   const headerRow = [
     ...visibleCore.map(c => c.label),
-    ...activeFws
+    ...activeFws.map(fc => fc.name)
   ];
 
   // Build data rows (use raw values, not HTML)
@@ -997,10 +990,7 @@ function exportToExcel() {
       if (c.key === COL_WEIGHT) return parseFloat(v) || v || '';
       return (v || '').toString().trim();
     }),
-    ...activeFws.map(fw => {
-      const fwIdx = CORE_COL_COUNT + frameworkHeaders.indexOf(fw);
-      return (row[fwIdx] || '').toString().trim();
-    })
+    ...activeFws.map(fc => (row[fc.idx] || '').toString().trim())
   ]);
 
   const aoa = [headerRow, ...dataRows];

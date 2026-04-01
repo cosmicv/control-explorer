@@ -8,9 +8,9 @@ A browser-based dashboard for visualizing and navigating security control framew
 - **Filter controls** by SCF Domain, NIST CSF Function, keyword search, and minimum control weight
 - **Per-column filters** — click ▼ on any column header to filter by specific values, including blanks
 - **Sort** any column ascending/descending
-- **Column visibility** — show/hide any core column
-- **Framework selection** — toggle individual framework columns on/off
-- **Detail panel** — click any row to see full control details and all framework mappings
+- **Column visibility** — show/hide the nine detected SCF core fields (domain, control, SCF #, description, cadence, ERL, question, weight, NIST CSF)
+- **Framework selection** — toggle any *other* column on/off (framework mappings plus SCF extras such as Possible Solutions or PPTDF, in spreadsheet order)
+- **Detail panel** — click any row to see full control details and values for every non-core column
 - **Export to Excel** — exports the current filtered/sorted view with only visible columns and active frameworks
 
 ## Usage
@@ -32,22 +32,23 @@ The SCF workbook contains multiple sheets. When you load it, Control Explorer wi
 
 ## Expected File Format
 
-The workbook should follow SCF structure:
+Row 1 is the header row. **Core columns** are found by matching header text (not fixed Excel positions), using names the SCF workbook typically uses:
 
-| Col | Field |
-|-----|-------|
-| A | SCF Domain |
-| B | SCF Control |
-| C | SCF # |
-| D | Control Description |
-| E | Conformity Validation Cadence |
-| F | Evidence Request List (ERL) # |
-| G | Control Question |
-| H | Relative Control Weighting |
-| I | NIST CSF Function Grouping |
-| J+ | Framework mapping columns (auto-detected) |
+| Typical field | Header cues (examples) |
+|---------------|-------------------------|
+| SCF Domain | contains `SCF Domain` |
+| SCF Control | `SCF Control` (exact preferred) |
+| SCF # | contains `SCF #` |
+| Control Description | contains `Control Description` |
+| Cadence | `Conformity Validation` / `Validation Cadence` |
+| ERL # | `Evidence Request List` / `ERL #` |
+| Control Question | contains `Control Question` |
+| Weight | `Relative Control Weighting` / `Control Weighting` |
+| NIST CSF | `NIST CSF Function` / `NIST CSF 2.0` / `NIST CSF` |
 
-Row 1 is treated as the header row. All columns beyond I are treated as framework mappings and can be toggled on/off independently.
+**Everything else** (any column whose index is not one of those nine detected fields) appears under **Frameworks** in the sidebar—whether it is a formal framework mapping (NIST 800-53, ISO 27001, …) or an extra SCF column (e.g. Possible Solutions, PPTDF). Each can be toggled on or off independently. Columns are ordered left-to-right as in the workbook.
+
+The classic SCF layout places the nine core fields in columns A–I and framework mappings from column J onward, but the app does not rely on fixed letters if your sheet order differs.
 
 ## No Dependencies to Install
 
