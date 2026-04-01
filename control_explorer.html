@@ -369,7 +369,14 @@ function loadFile(file) {
   reader.onload = e => {
     try {
       const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
-      const ws = wb.Sheets[wb.SheetNames[0]];
+      const TARGET_SHEET = 'SCF 2025.4';
+      const sheetName = wb.SheetNames.includes(TARGET_SHEET)
+        ? TARGET_SHEET
+        : wb.SheetNames[0];
+      if (!wb.SheetNames.includes(TARGET_SHEET)) {
+        console.warn(`Sheet "${TARGET_SHEET}" not found — loading "${sheetName}" instead.`);
+      }
+      const ws = wb.Sheets[sheetName];
       const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
       processData(raw);
     } catch(err) { alert('Error reading file: ' + err.message); }

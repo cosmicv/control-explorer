@@ -20,6 +20,16 @@ A browser-based dashboard for visualizing and navigating security control framew
 3. Use the sidebar to filter, and column headers to sort/filter
 4. Click **⬇ Export to Excel** to save the current view
 
+## Getting the SCF Workbook
+
+This tool is designed to work with the **Secure Controls Framework (SCF)** master workbook, which is available as a free download from the SCF team:
+
+**[Download the SCF workbook →](https://securecontrolsframework.com/free-scf-content/scf-download/)**
+
+The workbook includes the full SCF control library pre-mapped to dozens of frameworks (NIST 800-53, CIS Controls, CMMC, ISO 27001, SOC 2, and many more). Download the `.xlsx` version and load it directly into Control Explorer.
+
+Control Explorer will automatically target the **SCF 2025.4** sheet. If that sheet isn't present (e.g. a future version with a different name), it falls back to the first sheet in the workbook.
+
 ## Expected File Format
 
 The workbook should follow SCF structure:
