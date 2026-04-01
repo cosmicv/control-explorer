@@ -1,5 +1,7 @@
 # Control Explorer
 
+![Control Explorer dashboard: sidebar filters, column visibility, active filter chips, and control table with framework mappings](docs/control-explorer.png)
+
 A browser-based dashboard for visualizing and navigating security control frameworks — built for vCISOs managing multi-framework environments.
 
 ## Features
